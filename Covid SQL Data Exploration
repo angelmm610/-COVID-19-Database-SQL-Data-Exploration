@@ -1,0 +1,176 @@
+/* 
+
+DATA EXPLORATION SQL PROJECT USING COVID-19 DATA:
+
+Purpose is to extract specific data I want to work with,
+explore it, then prepare it to create data visualizations
+for an interactive dashboard that will show insights.
+
+*/
+
+--Took data from csv files and imported into tables in pgsql with correct data types set
+
+--Selecting dataset I'm going to use
+
+SELECT * 
+FROM "CovidDeaths" 
+WHERE continent IS NOT NULL; 
+
+
+--Selecting dataset I'm going to use
+
+SELECT * 
+FROM "CovidVaccinations" 
+WHERE continent IS NOT NULL;
+
+
+--Extracting specific columns I want to work with, ordered by date and location ascending
+
+SELECT location, date, total_cases, new_cases, total_deaths, population
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL
+ORDER BY location, date;
+
+
+--Looking at total cases VS total deaths below. Calculated % of deaths per cases and rounded answers for readability
+
+SELECT location, date, total_cases, total_deaths, 
+ROUND(((total_deaths/total_cases) * 100),3) AS mortality_rate_percent 
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL
+ORDER BY location, date;
+
+
+--Looking at mortality rate in % in the United States only
+
+SELECT location, date, total_cases, total_deaths, 
+ROUND(((total_deaths/total_cases) * 100),3) AS mortality_rate_percent 
+FROM "CovidDeaths"
+WHERE location = 'United States'
+ORDER BY location, date;
+
+
+--Looking at total cases VS population. Shows percentage of population affected in US
+
+SELECT location, date, total_cases, population, 
+ROUND(((total_cases/population) * 100),3) AS population_affected_percent
+FROM "CovidDeaths"
+WHERE location = 'United States'
+ORDER BY location, date;
+
+
+--Setting up a future visualization
+
+SELECT continent, SUM(new_deaths) AS death_count
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL AND location NOT IN ('World', 'European Union', 'International')
+GROUP BY continent
+ORDER BY death_count DESC;
+
+
+--Shows which countries have the highest infection rates compared to population
+--Will be used for future visualization
+
+SELECT location, MAX(total_cases) AS tallied_cases, population, 
+ROUND((MAX(total_cases)/population * 100), 3) AS PercentPopulationAffected
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL AND total_cases IS NOT NULL
+GROUP BY population, location
+ORDER BY PercentPopulationAffected DESC;
+
+
+--Setting up future visualization
+
+SELECT location, date, population, MAX(total_cases) AS tallied_cases, 
+ROUND((MAX(total_cases)/population * 100), 3) AS PercentPopulationAffected
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL AND total_cases IS NOT NULL
+GROUP BY location, population, date
+ORDER BY PercentPopulationAffected DESC;
+
+
+--Showing countries with highest mortality count
+
+SELECT location, MAX(total_deaths) AS total_death_count
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL AND total_deaths IS NOT NULL
+GROUP BY location
+ORDER BY MAX(total_deaths) DESC;
+
+
+--Showing death count by continent, world and income stats
+
+SELECT location, MAX(total_deaths) AS continent_death_count
+FROM "CovidDeaths"
+WHERE continent IS NULL 
+GROUP BY location, continent
+ORDER BY MAX(total_deaths) DESC;
+
+
+--Global numbers only
+--Will be used for future visualization
+
+SELECT SUM(new_cases) AS global_cases, SUM(new_deaths) AS global_deaths, 
+ROUND((SUM(new_deaths)/SUM(new_cases) * 100),3) AS global_death_percent
+FROM "CovidDeaths"
+WHERE continent IS NOT NULL
+ORDER BY 1,2;
+
+
+--Joining datasets CovidDeaths with CovidVaccinations
+
+SELECT * FROM "CovidDeaths" AS cd
+INNER JOIN "CovidVaccinations" AS cv
+ON cd.location = cv.location AND cd.date = cv.date;
+
+
+--Looking at total population VS vaccination
+
+SELECT cd.continent, cd.location, cd.date, cd.population, cv.new_vaccinations,
+SUM(cv.new_vaccinations) OVER (PARTITION BY cd.location ORDER BY cd.location, cd.date) AS rolling_people_vaccinated --adding rolling count of vaccinations
+FROM "CovidDeaths" AS cd
+INNER JOIN "CovidVaccinations" AS cv
+ON cd.location = cv.location AND cd.date = cv.date
+WHERE cd.continent IS NOT NULL 
+ORDER BY location, continent, date;
+
+
+--Creating a temp table to set up calculation for rolling percentage of population vaccinated
+
+--DROP TABLE IF EXISTS percent_population_vaccinated
+CREATE TABLE percent_population_vaccinated(
+continent TEXT,
+location TEXT,
+date DATE,
+population NUMERIC,
+new_vaccinations NUMERIC,
+rolling_people_vaccinated NUMERIC
+);
+
+INSERT INTO percent_population_vaccinated
+SELECT cd.continent, cd.location, cd.date, cd.population, cv.new_vaccinations,
+SUM(cv.new_vaccinations) OVER (PARTITION BY cd.location ORDER BY cd.location, cd.date) AS rolling_people_vaccinated --adding rolling count of vaccinations
+FROM "CovidDeaths" AS cd
+INNER JOIN "CovidVaccinations" AS cv
+ON cd.location = cv.location AND cd.date = cv.date
+WHERE cd.continent IS NOT NULL 
+ORDER BY location, continent, date;
+
+
+--Performing calculation for rolling percentage of population vaccinated
+
+SELECT *, ROUND((rolling_people_vaccinated/population * 100), 3) AS percent_vaccinated
+FROM percent_population_vaccinated;
+
+
+--Creating view to store data for potential future visualization
+
+CREATE VIEW percent_population_vaccinated_viz AS
+SELECT cd.continent, cd.location, cd.date, cd.population, cv.new_vaccinations,
+SUM(cv.new_vaccinations) OVER (PARTITION BY cd.location ORDER BY cd.location, cd.date) AS rolling_people_vaccinated --adding rolling count of vaccinations
+FROM "CovidDeaths" AS cd
+INNER JOIN "CovidVaccinations" AS cv
+ON cd.location = cv.location AND cd.date = cv.date
+WHERE cd.continent IS NOT NULL 
+ORDER BY location, continent, date;
+
